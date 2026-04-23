@@ -10,6 +10,10 @@ import TransactionForm from './components/TransactionForm';
 import TransactionList from './components/TransactionList';
 import Dashboard from './components/Dashboard';
 import AuthPage from './components/AuthPage';
+import AdminPanel from './components/AdminPanel';
+import UserLinkManager from './components/UserLinkManager';
+import InstructionBox from './components/InstructionBox';
+import GoalBoard from './components/GoalBoard';
 import { useAuth } from './context/AuthContext';
 import { auth, db, handleFirestoreError } from './lib/firebase';
 import { 
@@ -30,7 +34,8 @@ import {
   LogOut, 
   ShieldCheck, 
   User as UserIcon,
-  Search
+  Search,
+  Users as UsersIcon
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { motion, AnimatePresence } from 'motion/react';
@@ -167,6 +172,7 @@ export default function App() {
       </header>
 
       <main className="container mx-auto px-6 py-10 max-w-6xl">
+        <UserLinkManager />
         <Tabs defaultValue="dashboard" className="w-full space-y-10">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <TabsList className="bg-secondary/50 border border-border p-1 rounded-xl h-auto self-start">
@@ -178,6 +184,12 @@ export default function App() {
                 <ReceiptText className="w-4 h-4" />
                 Histórico
               </TabsTrigger>
+              {isAdmin && (
+                <TabsTrigger value="admin" className="rounded-lg py-2.5 px-5 flex items-center gap-2 data-[state=active]:bg-emerald-600 data-[state=active]:text-white transition-all">
+                  <UsersIcon className="w-4 h-4" />
+                  Gerenciar Clientes
+                </TabsTrigger>
+              )}
               <TabsTrigger value="add" className="rounded-lg py-2.5 px-5 flex items-center gap-2 md:hidden">
                 <PlusCircle className="w-4 h-4" />
                 Novo
@@ -196,8 +208,8 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
-            {/* Sidebar Form */}
-            <div className="hidden lg:block lg:col-span-4 sticky top-28">
+            {/* Sidebar Section */}
+            <div className="hidden lg:block lg:col-span-4 sticky top-28 space-y-6">
               <motion.div
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -205,6 +217,8 @@ export default function App() {
               >
                 <TransactionForm onAdd={handleAddTransaction} />
               </motion.div>
+              
+              {!isAdmin && <InstructionBox />}
             </div>
 
             {/* Main Content Area */}
@@ -221,6 +235,8 @@ export default function App() {
                     <Dashboard summary={summary} transactions={transactions} />
                   </motion.div>
                 </AnimatePresence>
+
+                {!isAdmin && <GoalBoard />}
                 
                 <div className="lg:hidden">
                    <h3 className="text-lg font-medium text-white mb-6">Últimos Lançamentos</h3>
@@ -247,6 +263,12 @@ export default function App() {
                   </motion.div>
                 </AnimatePresence>
               </TabsContent>
+
+              {isAdmin && (
+                <TabsContent value="admin" className="m-0 focus-visible:outline-none">
+                   <AdminPanel />
+                </TabsContent>
+              )}
 
               <TabsContent value="add" className="m-0 lg:hidden focus-visible:outline-none">
                  <motion.div

@@ -19,11 +19,17 @@ import { toast } from 'sonner';
 export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [cpf, setCpf] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleEmailAuth = async (type: 'login' | 'register', role: 'user' | 'admin' = 'user') => {
-    if (!email || !password) {
+    if (!email || !password || (type === 'register' && !cpf)) {
       toast.error('Preencha todos os campos');
+      return;
+    }
+
+    if (type === 'register' && cpf.length !== 11) {
+      toast.error('CPF deve ter 11 dígitos');
       return;
     }
     
@@ -35,6 +41,7 @@ export default function AuthPage() {
           uid: userCred.user.uid,
           email,
           role,
+          cpf,
           createdAt: serverTimestamp(),
         });
         
@@ -132,6 +139,18 @@ export default function AuthPage() {
             </TabsContent>
 
             <TabsContent value="register" className="m-0 space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="cpf">CPF (Apenas números)</Label>
+                <Input 
+                  id="cpf" 
+                  type="text" 
+                  maxLength={11}
+                  placeholder="000.000.000-00" 
+                  className="bg-background border-border"
+                  value={cpf}
+                  onChange={(e) => setCpf(e.target.value.replace(/\D/g, ''))}
+                />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <Button 
                   variant="outline" 

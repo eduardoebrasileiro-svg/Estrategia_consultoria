@@ -18,48 +18,50 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.email is string && data.email.size() <= 100
           && data.role in ['user', 'admin']
-          && data.keys().hasAll(['email', 'role', 'createdAt'])
-          && (data.keys().size() == 4 || data.keys().size() == 3);
+          && data.cpf is string && data.cpf.size() == 11
+          && data.keys().hasAll(['email', 'role', 'createdAt', 'cpf'])
+          && (data.keys().size() >= 4 && data.keys().size() <= 6);
     }
 
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin(); // Admin can list users to find via CPF (with careful querying)
       allow create: if isOwner(userId) 
                     && isValidUser(incoming())
-                    && incoming().role == 'user' // Users can't make themselves admins
+                    && incoming().role == 'user'
                     && incoming().createdAt == request.time;
-      allow update: if isOwner(userId)
-                    && isValidUser(incoming())
-                    && incoming().role == existing().role // Protect role from self-edit
-                    && incoming().createdAt == existing().createdAt;
+      allow update: if (isOwner(userId) && incoming().role == existing().role && incoming().createdAt == existing().createdAt)
+                    || (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['adminId'])); // Linking
     }
 
     // Transactions Validation
-    function isValidTransaction(data) {
-      return data.type in ['income', 'expense']
-          && data.amount is number && data.amount > 0
-          && data.category is string && data.category.size() <= 50
-          && data.description is string && data.description.size() <= 200
-          && data.date is string && data.date.size() <= 20
-          && data.createdAt is timestamp;
+    match /users/{userId}/transactions/{transactionId} {
+      allow list, get: if isOwner(userId) || (isAdmin() && get(/databases/$(database)/documents/users/$(userId)).data.adminId == request.auth.uid);
+      allow create: if isOwner(userId) && isValidId(transactionId) && incoming().createdAt == request.time;
+      allow update: if isOwner(userId) && incoming().createdAt == existing().createdAt;
+      allow delete: if isOwner(userId);
     }
 
-    match /users/{userId}/transactions/{transactionId} {
-      allow list: if isOwner(userId) || isAdmin();
-      allow get: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) 
-                    && isValidId(transactionId)
-                    && isValidTransaction(incoming())
-                    && incoming().createdAt == request.time;
-      allow update: if isOwner(userId)
-                    && isValidTransaction(incoming())
-                    && incoming().createdAt == existing().createdAt;
-      allow delete: if isOwner(userId) || isAdmin();
+    // Goals & Instructions
+    match /users/{userId}/goals/{goalId} {
+      allow read: if isOwner(userId) || (isAdmin() && get(/databases/$(database)/documents/users/$(userId)).data.adminId == request.auth.uid);
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(userId)).data.adminId == request.auth.uid;
+    }
+
+    match /users/{userId}/instructions/{instructionId} {
+      allow read: if isOwner(userId) || (isAdmin() && get(/databases/$(database)/documents/users/$(userId)).data.adminId == request.auth.uid);
+      allow write: if isAdmin() && get(/databases/$(database)/documents/users/$(userId)).data.adminId == request.auth.uid;
+    }
+
+    match /linkRequests/{requestId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow update, delete: if isSignedIn() && (incoming().userId == request.auth.uid || incoming().adminId == request.auth.uid);
     }
 
     match /admins/{userId} {
       allow read: if isSignedIn();
-      allow write: if false; // Only manageable via Firebase Console or Admin SDK
+      allow write: if false;
     }
   }
 }
