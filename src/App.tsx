@@ -9,19 +9,61 @@ import { Transaction, Summary } from './types';
 import TransactionForm from './components/TransactionForm';
 import TransactionList from './components/TransactionList';
 import Dashboard from './components/Dashboard';
-import { LayoutDashboard, ReceiptText, PlusCircle, Wallet2 } from 'lucide-react';
+import AuthPage from './components/AuthPage';
+import { useAuth } from './context/AuthContext';
+import { auth, db, handleFirestoreError } from './lib/firebase';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  serverTimestamp, 
+  query, 
+  orderBy 
+} from 'firebase/firestore';
+import { 
+  LayoutDashboard, 
+  ReceiptText, 
+  PlusCircle, 
+  Wallet2, 
+  LogOut, 
+  ShieldCheck, 
+  User as UserIcon,
+  Search
+} from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { motion, AnimatePresence } from 'motion/react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 
 export default function App() {
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('finanz_transactions');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const { user, profile, isAdmin, loading } = useAuth();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [searchFilter, setSearchFilter] = useState('');
 
   useEffect(() => {
-    localStorage.setItem('finanz_transactions', JSON.stringify(transactions));
-  }, [transactions]);
+    if (!user) {
+      setTransactions([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'users', user.uid, 'transactions'),
+      orderBy('date', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const txs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Transaction[];
+      setTransactions(txs);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const summary = useMemo<Summary>(() => {
     return transactions.reduce(
@@ -39,18 +81,37 @@ export default function App() {
     );
   }, [transactions]);
 
-  const handleAddTransaction = (data: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const newTransaction: Transaction = {
-      ...data,
-      id: Math.random().toString(36).substring(2, 9),
-      createdAt: new Date().toISOString(),
-    };
-    setTransactions((prev) => [newTransaction, ...prev]);
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(tx => 
+      tx.description.toLowerCase().includes(searchFilter.toLowerCase()) ||
+      tx.category.toLowerCase().includes(searchFilter.toLowerCase())
+    );
+  }, [transactions, searchFilter]);
+
+  const handleAddTransaction = async (data: Omit<Transaction, 'id' | 'createdAt'>) => {
+    if (!user) return;
+    
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'transactions'), {
+        ...data,
+        createdAt: serverTimestamp(),
+      });
+    } catch (e) {
+      handleFirestoreError(e, 'create', `users/${user.uid}/transactions`);
+    }
   };
 
-  const handleDeleteTransaction = (id: string) => {
-    setTransactions((prev) => prev.filter((t) => t.id !== id));
+  const handleDeleteTransaction = async (id: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'transactions', id));
+    } catch (e) {
+      handleFirestoreError(e, 'delete', `users/${user.uid}/transactions/${id}`);
+    }
   };
+
+  if (loading) return null;
+  if (!user) return <AuthPage />;
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/20">
@@ -64,20 +125,42 @@ export default function App() {
               <Wallet2 className="w-7 h-7" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold tracking-tight text-white leading-none mb-1">Gestão Financeira</h1>
-              <p className="text-xs text-muted-foreground uppercase tracking-widest font-medium">Finanz App</p>
+              <div className="flex items-center gap-2 mb-0.5">
+                <h1 className="text-xl font-semibold tracking-tight text-white leading-none">Finanz</h1>
+                {isAdmin ? (
+                  <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 py-0 text-[9px] uppercase tracking-tighter">
+                    <ShieldCheck className="w-2.5 h-2.5 mr-1" /> Admin
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="bg-blue-500/10 text-blue-400 border-blue-500/20 py-0 text-[9px] uppercase tracking-tighter">
+                    <UserIcon className="w-2.5 h-2.5 mr-1" /> User
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground uppercase tracking-widest font-medium">Controle Financeiro</p>
             </div>
           </div>
           
-          <div className="hidden md:flex items-center gap-6">
-             <div className="text-right">
+          <div className="flex items-center gap-6">
+             <div className="hidden md:block text-right">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] block leading-none mb-1">Saldo Atual</span>
                 <span className={`text-2xl font-mono font-bold tracking-tight ${summary.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                    {summary.balance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </span>
              </div>
-             <div className="w-10 h-10 rounded-full bg-secondary border border-border flex items-center justify-center text-sm font-bold text-muted-foreground">
-                JD
+             
+             <div className="flex items-center gap-2">
+               <div className="w-10 h-10 rounded-full bg-secondary border border-border flex items-center justify-center text-sm font-bold text-muted-foreground">
+                  {profile?.displayName?.[0] || user.email?.[0]?.toUpperCase() || 'U'}
+               </div>
+               <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => auth.signOut()}
+                className="text-muted-foreground hover:text-white"
+               >
+                 <LogOut className="w-5 h-5" />
+               </Button>
              </div>
           </div>
         </div>
@@ -93,13 +176,23 @@ export default function App() {
               </TabsTrigger>
               <TabsTrigger value="transactions" className="rounded-lg py-2.5 px-5 flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
                 <ReceiptText className="w-4 h-4" />
-                Lançamentos
+                Histórico
               </TabsTrigger>
               <TabsTrigger value="add" className="rounded-lg py-2.5 px-5 flex items-center gap-2 md:hidden">
                 <PlusCircle className="w-4 h-4" />
                 Novo
               </TabsTrigger>
             </TabsList>
+
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input 
+                placeholder="Buscar lançamentos..." 
+                className="pl-9 bg-secondary/30 border-border h-10 text-sm"
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
@@ -132,7 +225,7 @@ export default function App() {
                 <div className="lg:hidden">
                    <h3 className="text-lg font-medium text-white mb-6">Últimos Lançamentos</h3>
                    <TransactionList 
-                      transactions={transactions.slice(0, 5)} 
+                      transactions={filteredTransactions.slice(0, 5)} 
                       onDelete={handleDeleteTransaction} 
                    />
                 </div>
@@ -148,7 +241,7 @@ export default function App() {
                     transition={{ duration: 0.4 }}
                   >
                     <TransactionList 
-                      transactions={transactions} 
+                      transactions={filteredTransactions} 
                       onDelete={handleDeleteTransaction} 
                     />
                   </motion.div>
@@ -169,18 +262,17 @@ export default function App() {
         </Tabs>
       </main>
 
-      {/* Footer */}
       <footer className="mt-auto py-8 border-t border-border bg-background">
          <div className="container mx-auto px-6 flex justify-between items-center">
             <p className="text-[10px] text-muted-foreground uppercase tracking-[0.2em]">
-               Sincronizado &bull; Cloud Storage
+               {isAdmin ? 'Modo Administrativo Ativado' : 'Painel de Usuário Conectado'}
             </p>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
                <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
-                  Online
+                  Sincronizado
                </div>
-               <span>v1.2.4</span>
+               <span>{user.email}</span>
             </div>
          </div>
       </footer>
